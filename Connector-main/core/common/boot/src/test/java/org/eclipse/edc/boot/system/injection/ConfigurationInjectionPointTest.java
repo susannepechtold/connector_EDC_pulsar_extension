@@ -1,0 +1,155 @@
+/*
+ *  Copyright (c) 2024 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+ *
+ *  This program and the accompanying materials are made available under the
+ *  terms of the Apache License, Version 2.0 which is available at
+ *  https://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  SPDX-License-Identifier: Apache-2.0
+ *
+ *  Contributors:
+ *       Bayerische Motoren Werke Aktiengesellschaft (BMW AG) - initial API and implementation
+ *
+ */
+
+package org.eclipse.edc.boot.system.injection;
+
+import org.eclipse.edc.boot.system.testextensions.ConfigurationObject;
+import org.eclipse.edc.boot.system.testextensions.ExtensionWithConfigObject;
+import org.eclipse.edc.spi.system.ServiceExtensionContext;
+import org.eclipse.edc.spi.system.configuration.ConfigFactory;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.eclipse.edc.boot.system.TestFunctions.getDeclaredField;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class ConfigurationInjectionPointTest {
+
+    private final ExtensionWithConfigObject targetInstance = new ExtensionWithConfigObject();
+
+    @Nested
+    class InjectConfigurationObject {
+        private final ConfigurationInjectionPoint<ExtensionWithConfigObject> injectionPoint = new ConfigurationInjectionPoint<>(
+                targetInstance, getDeclaredField(ExtensionWithConfigObject.class, "configurationObject"));
+
+        @Test
+        void getTargetInstance() {
+            assertThat(injectionPoint.getTargetInstance()).isEqualTo(targetInstance);
+        }
+
+        @Test
+        void getType() {
+            assertThat(injectionPoint.getType()).isEqualTo(ConfigurationObject.class);
+        }
+
+        @Test
+        void isRequired() {
+            assertThat(injectionPoint.isRequired()).isTrue();
+        }
+
+        @Test
+        void setTargetValue() {
+            var result = injectionPoint.setTargetValue(new ConfigurationObject("foo", 42L, null, 3.14159));
+
+            assertThat(result.succeeded()).isTrue();
+        }
+
+        @Test
+        void getDefaultValueProvider() {
+            assertThat(injectionPoint.getDefaultValueProvider()).isNull();
+        }
+
+        @Test
+        void resolve_record_isRequired_notResolved() {
+            var context = mock(ServiceExtensionContext.class);
+            when(context.getConfig()).thenReturn(ConfigFactory.fromMap(Map.of()));
+            assertThatThrownBy(() -> injectionPoint.resolve(context, mock())).isInstanceOf(EdcInjectionException.class);
+        }
+
+        @Test
+        void resolve_objectIsRecord() {
+            var context = mock(ServiceExtensionContext.class);
+            when(context.getMonitor()).thenReturn(mock());
+            when(context.getConfig()).thenReturn(ConfigFactory.fromMap(Map.of("foo.bar.baz", "asdf",
+                    "test.key3", "42")));
+
+            var res = injectionPoint.resolve(context, mock());
+            assertThat(res).isInstanceOf(ConfigurationObject.class);
+        }
+
+        @Test
+        void getProviders() {
+            var context = mock(ServiceExtensionContext.class);
+            when(context.getMonitor()).thenReturn(mock());
+            when(context.getConfig()).thenReturn(ConfigFactory.fromMap(Map.of("foo.bar.baz", "asdf",
+                    "test.key3", "42")));
+
+            assertThat(injectionPoint.getProviders(Map.of(), context).succeeded()).isTrue();
+        }
+
+        @Test
+        void getProviders_hasViolations() {
+            var context = mock(ServiceExtensionContext.class);
+            when(context.getMonitor()).thenReturn(mock());
+            when(context.getConfig()).thenReturn(ConfigFactory.fromMap(Map.of()));
+
+            var result = injectionPoint.getProviders(Map.of(), context);
+            assertThat(result.succeeded()).isFalse();
+            assertThat(result.getFailureDetail()).startsWith("Configuration object \"configurationObject\" of type " +
+                    "[class org.eclipse.edc.boot.system.testextensions.ConfigurationObject], through nested");
+        }
+
+    }
+
+    @Nested
+    class InjectOptionalConfigurationObject {
+
+        @Test
+        void resolve_objectIsClass() {
+            var injectionPoint = new ConfigurationInjectionPoint<>(targetInstance, getDeclaredField(ExtensionWithConfigObject.class, "optionalConfigurationObject"));
+            var context = mock(ServiceExtensionContext.class);
+            when(context.getMonitor()).thenReturn(mock());
+            when(context.getConfig()).thenReturn(ConfigFactory.fromMap(Map.of("optional.key", "asdf")));
+
+            var result = injectionPoint.resolve(context, mock());
+
+            assertThat(result).isInstanceOf(ExtensionWithConfigObject.OptionalConfigurationObject.class);
+            assertThat(((ExtensionWithConfigObject.OptionalConfigurationObject) result).getVal()).isEqualTo("asdf");
+        }
+
+        @Test
+        void isRequired() {
+            var injectionPoint = new ConfigurationInjectionPoint<>(targetInstance, getDeclaredField(ExtensionWithConfigObject.class, "optionalConfigurationObject"));
+
+            assertThat(injectionPoint.isRequired()).isFalse();
+        }
+    }
+
+    @Nested
+    class InjectConfigurationObjectWithContext {
+
+        @Test
+        void shouldPrependContextInSetting() {
+            var injectionPoint = new ConfigurationInjectionPoint<>(
+                    targetInstance, getDeclaredField(ExtensionWithConfigObject.class, "configurationObjectWithContext"));
+            var context = mock(ServiceExtensionContext.class);
+            when(context.getMonitor()).thenReturn(mock());
+            when(context.getConfig()).thenReturn(ConfigFactory.fromMap(Map.of(
+                    "custom.context.foo.bar.baz", "asdf",
+                    "custom.context.test.key3", "42"
+            )));
+
+            var result = injectionPoint.resolve(context, mock());
+
+            assertThat(result).isInstanceOf(ConfigurationObject.class);
+        }
+
+    }
+
+}
